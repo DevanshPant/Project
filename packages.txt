@@ -1,2 +1,0 @@
-# System packages for NLTK data download
-# This ensures NLTK corpora are available in Streamlit Cloud
