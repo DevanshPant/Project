@@ -4,28 +4,26 @@ Handles login, user management, and session management
 """
 
 import streamlit as st
-import pandas as pd
 import hashlib
 import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
 import logging
 
+from database import DatabaseManager
+
 logger = logging.getLogger(__name__)
 
 
-# User credentials (in production, use proper database)
-ADMIN_CREDENTIALS = {
-    "admin@example.com": "admin123",  # Change in production!
-}
-
-USER_CREDENTIALS = {
-    "recruiter@example.com": "recruiter123",  # Demo credentials
-}
-
-SYSTEM_USERS = {
-    **ADMIN_CREDENTIALS,
-    **USER_CREDENTIALS
+DEFAULT_USERS = {
+    "admin@example.com": {
+        "password": "admin123",
+        "role": "admin"
+    },
+    "recruiter@example.com": {
+        "password": "recruiter123",
+        "role": "recruiter"
+    }
 }
 
 
@@ -41,6 +39,8 @@ class AuthenticationManager:
         """
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
         self.init_session_state()
+        self.db_manager = DatabaseManager()
+        self.db_manager.seed_demo_users()
     
     def init_session_state(self):
         """Initialize session state variables."""
@@ -66,10 +66,9 @@ class AuthenticationManager:
     
     def get_user_role(self, email: str) -> Optional[str]:
         """Determine user role based on email."""
-        if email in ADMIN_CREDENTIALS:
-            return "admin"
-        elif email in USER_CREDENTIALS:
-            return "recruiter"
+        user = self.db_manager.get_user_by_email(email)
+        if user is not None:
+            return user.get('role')
         return None
     
     def authenticate(self, email: str, password: str) -> Tuple[bool, str]:
@@ -83,16 +82,17 @@ class AuthenticationManager:
         Returns:
             Tuple: (success, message)
         """
-        if email not in SYSTEM_USERS:
+        user = self.db_manager.get_user_by_email(email)
+        if user is None:
             return False, "❌ User not found"
-        
-        if SYSTEM_USERS[email] != password:
+
+        if not self.verify_password(password, user['password_hash']):
             return False, "❌ Invalid password"
-        
+
         # Set session state
         st.session_state.authenticated = True
         st.session_state.user_email = email
-        st.session_state.user_role = self.get_user_role(email)
+        st.session_state.user_role = user['role']
         st.session_state.login_time = datetime.now()
         
         logger.info(f"User {email} authenticated as {st.session_state.user_role}")
@@ -164,49 +164,87 @@ def login_page(auth_manager: AuthenticationManager):
         st.markdown("### Sign In to Continue")
         
         st.markdown("---")
-        
-        # Login form
-        with st.form("login_form"):
-            email = st.text_input(
-                "📧 Email Address",
-                placeholder="admin@example.com or recruiter@example.com"
-            )
-            
-            password = st.text_input(
-                "🔐 Password",
-                type="password",
-                placeholder="Enter your password"
-            )
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                submit_button = st.form_submit_button("🔓 Login", use_container_width=True)
-            
-            with col2:
-                demo_button = st.form_submit_button("📝 Demo Login", use_container_width=True)
-            
-            if submit_button:
-                if not email or not password:
-                    st.error("❌ Please enter email and password")
-                else:
-                    success, message = auth_manager.authenticate(email, password)
-                    if success:
-                        st.success(message)
-                        st.balloons()
-                        st.rerun()
-                    else:
-                        st.error(message)
-            
-            if demo_button:
-                # Demo login
-                success, message = auth_manager.authenticate(
-                    "admin@example.com",
-                    "admin123"
+
+        tab_recruiter, tab_admin = st.tabs(["Recruiter Login", "Admin Login"])
+        active_tab = "Recruiter"
+
+        with tab_recruiter:
+            active_tab = "Recruiter"
+            with st.form("login_form_recruiter"):
+                email = st.text_input(
+                    "📧 Email Address",
+                    placeholder="recruiter@example.com"
                 )
-                if success:
-                    st.success("✅ Demo Admin Login")
-                    st.rerun()
+                password = st.text_input(
+                    "🔐 Password",
+                    type="password",
+                    placeholder="Enter your password"
+                )
+                col1, col2 = st.columns(2)
+                with col1:
+                    submit_button = st.form_submit_button("🔓 Login as Recruiter", use_container_width=True)
+                with col2:
+                    demo_button = st.form_submit_button("📝 Demo Recruiter Login", use_container_width=True)
+
+                if submit_button:
+                    if not email or not password:
+                        st.error("❌ Please enter email and password")
+                    else:
+                        success, message = auth_manager.authenticate(email, password)
+                        if success:
+                            st.success(message)
+                            st.balloons()
+                            st.rerun()
+                        else:
+                            st.error(message)
+
+                if demo_button:
+                    success, message = auth_manager.authenticate(
+                        "recruiter@example.com",
+                        "recruiter123"
+                    )
+                    if success:
+                        st.success("✅ Demo Recruiter Login")
+                        st.rerun()
+
+        with tab_admin:
+            active_tab = "Admin"
+            with st.form("login_form_admin"):
+                email = st.text_input(
+                    "📧 Email Address",
+                    placeholder="admin@example.com"
+                )
+                password = st.text_input(
+                    "🔐 Password",
+                    type="password",
+                    placeholder="Enter your password"
+                )
+                col1, col2 = st.columns(2)
+                with col1:
+                    submit_button = st.form_submit_button("🔓 Login as Admin", use_container_width=True)
+                with col2:
+                    demo_button = st.form_submit_button("📝 Demo Admin Login", use_container_width=True)
+
+                if submit_button:
+                    if not email or not password:
+                        st.error("❌ Please enter email and password")
+                    else:
+                        success, message = auth_manager.authenticate(email, password)
+                        if success:
+                            st.success(message)
+                            st.balloons()
+                            st.rerun()
+                        else:
+                            st.error(message)
+
+                if demo_button:
+                    success, message = auth_manager.authenticate(
+                        "admin@example.com",
+                        "admin123"
+                    )
+                    if success:
+                        st.success("✅ Demo Admin Login")
+                        st.rerun()
         
         st.markdown("---")
         

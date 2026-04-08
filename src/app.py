@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import tempfile
 import logging
+from datetime import datetime
 
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -19,6 +20,8 @@ from data_loader import DataLoader
 from preprocess import TextPreprocessor
 from feature_extraction import FeatureExtractor
 from matcher import ResumeJobMatcher, CandidateShortlister
+from model import ClassificationModel
+from database import DatabaseManager
 from utils import DataExporter, ResultsFormatter, compare_tfidf_vs_bert, scalability_analysis, bias_reduction_strategies
 from auth import AuthenticationManager, login_page, logout_button
 
@@ -105,6 +108,7 @@ def main():
                 "Job Matching",
                 "Results & Export",
                 "Analytics",
+                "Model Training",
                 "Documentation"
             ])
     
@@ -257,6 +261,25 @@ def show_home_page():
     with col4:
         st.metric("Export Formats", "3 types")
     
+    db_manager = DatabaseManager()
+    total_databases = len(db_manager.get_all_databases())
+    total_users = len(db_manager.get_all_users())
+    total_resumes = sum(
+        db_manager.get_database_statistics(name)['row_count']
+        for name in db_manager.get_all_databases()
+        if db_manager.get_database_statistics(name) is not None
+    )
+    
+    st.markdown("---")
+    st.markdown("### 💾 Current System Data")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Resume Databases", total_databases)
+    with col2:
+        st.metric("Stored Resumes", str(total_resumes))
+    with col3:
+        st.metric("Registered Users", total_users)
+    
     # Latest updates
     st.markdown("---")
     st.info("""
@@ -270,15 +293,80 @@ def show_home_page():
 
 def show_upload_page():
     """Display resume upload and processing page."""
-    
+
     st.header("📤 Upload & Process Resumes")
-    
-    # Sample data option
+
+    db_manager = DatabaseManager()
+
+    st.markdown("### Upload a resume dataset or paste sample resume text")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        database_name = st.text_input(
+            "Database Name",
+            placeholder="e.g., Finance-Dept-Resumes"
+        )
+    with col2:
+        description = st.text_area(
+            "Description",
+            placeholder="Optional: Add notes about this upload",
+            height=100
+        )
+
+    uploaded_file = st.file_uploader(
+        "Upload CSV or Excel file",
+        type=["csv", "xlsx", "xls"]
+    )
+
+    if uploaded_file:
+        try:
+            if uploaded_file.name.lower().endswith(".csv"):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+
+            st.markdown("#### File Preview")
+            st.dataframe(df.head(10))
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Rows", len(df))
+            with col2:
+                st.metric("Columns", len(df.columns))
+            with col3:
+                st.metric("Duplicates", int(df.duplicated().sum()))
+            with col4:
+                st.metric("Missing Values", int(df.isnull().sum().sum()))
+
+            is_valid, message = db_manager.validate_resume_data(df)
+            st.info(message)
+
+            if st.button("✅ Upload Database"):
+                if database_name:
+                    if is_valid or "Warning" in message:
+                        success, msg = db_manager.insert_resumes(
+                            df,
+                            database_name,
+                            description,
+                            uploaded_by=st.session_state.get("user_email", "system")
+                        )
+                        if success:
+                            st.success(msg)
+                            st.experimental_rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.error("Fix validation errors before uploading")
+                else:
+                    st.warning("Please enter a database name before uploading")
+        except Exception as e:
+            st.error(f"Error reading file: {str(e)}")
+
+    st.markdown("---")
+    st.subheader("Option 1: Paste Resume Text")
+
     use_sample = st.checkbox("Use Sample Data (Demo Mode)")
-    
     if use_sample:
         st.info("Using sample resume data for demonstration")
-        # Create sample data
         sample_resumes = [
             "Python Expert with 5+ years experience in machine learning and data science. Skills: Python, TensorFlow, Scikit-learn.",
             "Full stack developer with JavaScript, React, Node.js expertise. Strong in web development and responsive design.",
@@ -286,15 +374,10 @@ def show_upload_page():
             "Cloud architect with AWS, Azure knowledge. Infrastructure as code, DevOps, containerization.",
             "Project manager with Agile and Scrum certification. Led cross-functional teams to deliver software projects.",
         ]
-        
         st.session_state.resumes = sample_resumes
-        st.success("✓ Sample resumes loaded")
+        st.success("Sample resumes loaded")
     else:
-        # Manual resume input
-        st.subheader("Option 1: Paste Resume Text")
-        
         num_resumes = st.number_input("Number of resumes to add", min_value=1, max_value=10, value=1)
-        
         resumes = []
         for i in range(num_resumes):
             with st.expander(f"Resume {i+1}"):
@@ -305,49 +388,41 @@ def show_upload_page():
                 )
                 if resume_text:
                     resumes.append(resume_text)
-        
+
         if resumes:
             st.session_state.resumes = resumes
-            st.success(f"✓ {len(resumes)} resume(s) loaded")
-    
-    # Process resumes
+            st.success(f"{len(resumes)} resume(s) loaded")
+
     if st.button("🔄 Process Resumes", key="process_btn"):
-        if 'resumes' in st.session_state:
+        if "resumes" in st.session_state and st.session_state.resumes:
             with st.spinner("Processing resumes..."):
                 try:
-                    # Preprocess
                     preprocessor = TextPreprocessor()
                     processed_resumes = [
-                        preprocessor.preprocess_text(resume) 
+                        preprocessor.preprocess_text(resume)
                         for resume in st.session_state.resumes
                     ]
-                    
+
                     st.session_state.processed_resumes = processed_resumes
-                    
-                    # Extract features
+
                     extractor = FeatureExtractor()
                     resume_features = extractor.tfidf_extractor.fit_transform(processed_resumes)
-                    
+
                     st.session_state.resume_features = resume_features
                     st.session_state.feature_extractor = extractor
-                    
-                    st.success("✓ Resumes processed successfully!")
-                    
-                    # Display statistics
+
+                    st.success("Resumes processed successfully")
+
                     st.subheader("Processing Statistics")
                     col1, col2, col3 = st.columns(3)
-                    
                     with col1:
                         st.metric("Resumes Processed", len(processed_resumes))
-                    
                     with col2:
                         st.metric("Features Extracted", resume_features.shape[1])
-                    
                     with col3:
                         avg_length = np.mean([len(r.split()) for r in processed_resumes])
                         st.metric("Avg Words/Resume", f"{avg_length:.0f}")
-                    
-                    # Show sample
+
                     st.subheader("Sample Processed Text")
                     st.text_area(
                         "First 1000 characters of processed resume:",
@@ -355,11 +430,43 @@ def show_upload_page():
                         height=100,
                         disabled=True
                     )
-                    
                 except Exception as e:
                     st.error(f"Error processing resumes: {str(e)}")
         else:
             st.warning("Please load resumes first")
+
+    if "processed_resumes" in st.session_state and st.session_state.processed_resumes:
+        st.markdown("---")
+        st.subheader("Save Processed Resumes")
+        save_db_name = st.text_input(
+            "Database name to save processed resumes",
+            placeholder="e.g., Processed-Resumes-2026",
+            key="save_db_name"
+        )
+
+        if st.button("💾 Save Processed Resumes to Database", key="save_processed_db"):
+            if save_db_name:
+                processed_data = []
+                for idx, resume in enumerate(st.session_state.processed_resumes):
+                    processed_data.append({
+                        "name": f"Candidate {idx+1}",
+                        "email": f"candidate{idx+1}@example.com",
+                        "phone": f"000000000{idx+1}",
+                        "resume_text": st.session_state.resumes[idx],
+                        "processed_text": resume
+                    })
+
+                df = pd.DataFrame(processed_data)
+                success, msg = db_manager.insert_resumes(
+                    df,
+                    save_db_name,
+                    description="Processed resumes saved by user",
+                    uploaded_by=st.session_state.get("user_email", "system")
+                )
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
 
 def show_matching_page():
@@ -462,6 +569,26 @@ def show_matching_page():
                 if not shortlist_df.empty:
                     st.dataframe(shortlist_df, use_container_width=True)
                     st.session_state.shortlist_df = shortlist_df
+
+                    if st.button("💾 Save Match History", key="save_match_history"):
+                        db_manager = DatabaseManager()
+                        history_rows = [
+                            {
+                                "candidate_name": row["Candidate Name"],
+                                "similarity_score": float(row["Similarity Score"]),
+                                "rank": int(row["Rank"])
+                            }
+                            for _, row in shortlist_df.iterrows()
+                        ]
+                        success, msg = db_manager.insert_match_history(
+                            st.session_state.get("user_email", "system"),
+                            job_description,
+                            history_rows
+                        )
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
                 else:
                     st.info("No candidates above the selected threshold")
                 
@@ -490,7 +617,27 @@ def show_results_page():
     export_format = st.radio("Select export format:", ["CSV", "Excel", "JSON"])
     
     exporter = DataExporter("outputs")
-    
+
+    if st.button("💾 Save Shortlist to Match History", key="save_shortlist_db"):
+        db_manager = DatabaseManager()
+        history_rows = [
+            {
+                "candidate_name": row["Candidate Name"],
+                "similarity_score": float(row["Similarity Score"]),
+                "rank": int(row["Rank"])
+            }
+            for _, row in shortlist_df.iterrows()
+        ]
+        success, msg = db_manager.insert_match_history(
+            st.session_state.get("user_email", "system"),
+            "Saved shortlist from results page",
+            history_rows
+        )
+        if success:
+            st.success(msg)
+        else:
+            st.error(msg)
+
     if export_format == "CSV":
         csv_data = shortlist_df.to_csv(index=False)
         st.download_button(
@@ -523,6 +670,110 @@ def show_results_page():
             file_name="candidates_shortlist.json",
             mime="application/json"
         )
+
+
+def show_model_training_page():
+    """Display model training page."""
+
+    st.header("🧠 Model Training")
+    st.markdown(
+        "Upload a labeled dataset of resumes to train a supervised screening model."
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload labeled CSV or Excel file",
+        type=["csv", "xlsx", "xls"],
+        key="model_data_upload"
+    )
+
+    model_type = st.selectbox(
+        "Select model type",
+        ["logistic_regression", "naive_bayes", "svm", "random_forest"],
+        index=0
+    )
+
+    text_column = st.text_input(
+        "Text column name",
+        value="resume_text",
+        help="Column containing resume text or job descriptions."
+    )
+    label_column = st.text_input(
+        "Label column name",
+        value="label",
+        help="Column containing target labels for training."
+    )
+
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.lower().endswith(".csv"):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+
+            st.markdown("#### Dataset Preview")
+            st.dataframe(df.head(8))
+
+            if st.button("🚀 Train Model", key="train_model_btn"):
+                if text_column not in df.columns or label_column not in df.columns:
+                    st.error("Please provide valid text and label columns from the uploaded dataset.")
+                else:
+                    df[text_column] = df[text_column].fillna("").astype(str)
+                    y = df[label_column].astype(str).tolist()
+                    X_text = df[text_column].tolist()
+
+                    preprocessor = TextPreprocessor()
+                    X_clean = [preprocessor.preprocess_text(text) for text in X_text]
+
+                    extractor = FeatureExtractor()
+                    X = extractor.extract_features(X_clean)
+
+                    from sklearn.model_selection import train_test_split
+
+                    stratify = y if len(set(y)) > 1 else None
+                    try:
+                        X_train, X_test, y_train, y_test = train_test_split(
+                            X,
+                            y,
+                            test_size=0.2,
+                            random_state=42,
+                            stratify=stratify
+                        )
+                    except ValueError:
+                        X_train, X_test, y_train, y_test = train_test_split(
+                            X,
+                            y,
+                            test_size=0.2,
+                            random_state=42
+                        )
+
+                    model = ClassificationModel(model_type=model_type)
+                    train_metrics = model.train(X_train, np.array(y_train))
+                    eval_metrics = model.evaluate(X_test, np.array(y_test))
+
+                    st.success("Model training complete")
+                    st.markdown("### 🔍 Evaluation Metrics")
+                    metrics = {
+                        "Training Accuracy": train_metrics.get("accuracy", 0.0),
+                        "Validation Accuracy": eval_metrics.get("accuracy", 0.0),
+                        "Precision": eval_metrics.get("precision", 0.0),
+                        "Recall": eval_metrics.get("recall", 0.0),
+                        "F1 Score": eval_metrics.get("f1_score", 0.0)
+                    }
+                    for label, value in metrics.items():
+                        st.metric(label, f"{value:.4f}")
+
+                    model_folder = Path("data/models")
+                    model_folder.mkdir(parents=True, exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    model_path = model_folder / f"screening_model_{model_type}_{timestamp}.pkl"
+                    vectorizer_path = model_folder / f"tfidf_vectorizer_{timestamp}.pkl"
+                    model.save_model(str(model_path))
+                    extractor.tfidf_extractor.save_vectorizer(str(vectorizer_path))
+
+                    st.info(f"Saved trained model to `{model_path}`")
+                    st.info(f"Saved TF-IDF vectorizer to `{vectorizer_path}`")
+        except Exception as e:
+            st.error(f"Error loading model dataset: {str(e)}")
 
 
 def show_analytics_page():
