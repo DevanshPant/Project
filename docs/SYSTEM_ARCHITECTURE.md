@@ -1,0 +1,530 @@
+# System Architecture Diagrams
+
+## 1. Use Case Diagram
+
+```
+                         Resume Screening System Use Cases
+                         
+        ┌─────────────────────────────────────────┐
+        │     Resume Screening System             │
+        │                                         │
+        │  ┌──────────────────────────────────┐   │
+        │  │  UC1: Upload Resumes             │   │
+        │  └──────────────────────────────────┘   │
+        │           ▲                              │
+        │           └─────┐                        │
+        │                 │                        │
+    ┌───┴──────────┐      │        ┌────────────────────┐
+    │  Recruiter   │◄─────┴────────┤ UC2: Enter Job Desc│
+    │              │        │       └────────────────────┘
+    └───┬──────────┘        │
+        │                   │
+        │         ┌─────────┴───────┐
+        │         │                 │
+        │    ┌────▼──────────────────┐
+        │    │ UC3: Process & Match  │
+        │    │ Resumes               │
+        │    └────┬──────────────────┘
+        │         │
+        │    ┌────▼──────────────────┐
+        │    │ UC4: View Rankings    │
+        │    │ & Statistics          │
+        │    └────┬──────────────────┘
+        │         │
+        │    ┌────▼──────────────────┐
+        │    │ UC5: Export Results   │
+        │    │ (CSV/Excel/JSON)      │
+        │    └───────────────────────┘
+        │
+        └───────────────────────────
+
+Key Actors:
+- Recruiter: Uses system for resume screening
+- Job Seeker: Provides resumes (indirectly)
+- System: Automated matching engine
+- Database: Stores resume and result data
+```
+
+## 2. Data Flow Diagram (DFD)
+
+### DFD Level 0 (Context Diagram)
+
+```
+                        ┌─────────────────────────────┐
+                        │  Resume Screening System    │
+                        │                             │
+                        │   NLP-based Matching       │
+                        │   & Shortlisting           │
+                        │                             │
+                        └────────────┬────────────────┘
+                                     │
+                 ┌───────────────────┼───────────────────┐
+                 │                   │                   │
+    ┌────────────▼────────┐  ┌───────▼─────────┐  ┌────▼──────────────┐
+    │                     │  │                 │  │                   │
+    │  Recruiter          │  │  Kaggle Dataset │  │  Result Database  │
+    │  (Resumes + Job)    │  │  (Resume Data)  │  │  (Shortlisted)    │
+    │                     │  │                 │  │                   │
+    └────────────┬────────┘  └────────┬────────┘  └────▲──────────────┘
+                 │                    │                 │
+                 └──────────┬──────────┘                 │
+                            │                           │
+                            │                           │
+                       Resumes                      Rankings
+                       Job Desc                    Statistics
+                            │
+                            │
+                 ┌──────────▼──────────┐
+                 │   Resume Screening  │
+                 │   System (Matcher   │
+                 │   & Ranker)         │
+                 └─────────────────────┘
+```
+
+### DFD Level 1 (Process Decomposition)
+
+```
+                            ┌──────────────┐
+                            │ Input Resumes│
+                            │ + Job Desc   │
+                            └───────┬──────┘
+                                    │
+                        ┌───────────▼───────────┐
+                        │  P1: Data Loading &   │
+                        │      Validation       │
+                        │  (data_loader.py)     │
+                        └───────────┬───────────┘
+                                    │
+                                    ├──────────────► D1: Resume Repository
+                                    │
+                        ┌───────────▼───────────┐
+                        │  P2: Text Processing  │
+                        │      (preprocess.py)  │
+                        │  - Tokenization       │
+                        │  - Lemmatization      │
+                        │  - Stopword removal   │
+                        └───────────┬───────────┘
+                                    │
+                        ┌───────────▼───────────┐
+                        │ P3: Feature Extraction│
+                        │ (feature_extraction   │
+                        │  _py)                 │
+                        │ - TF-IDF Vectorizer   │
+                        └───────────┬───────────┘
+                                    │
+                                    ├──────────────► D2: Feature Cache
+                                    │
+                        ┌───────────▼───────────┐
+                        │ P4: Candidate Matching│
+                        │ (matcher.py)          │
+                        │ - Cosine Similarity   │
+                        │ - Ranking             │
+                        └───────────┬───────────┘
+                                    │
+                        ┌───────────▼───────────┐
+                        │ P5: Shortlisting      │
+                        │ (matcher.py)          │
+                        │ - Threshold filtering │
+                        │ - Top-N selection     │
+                        └───────────┬───────────┘
+                                    │
+                        ┌───────────▼───────────┐
+                        │ P6: Export Results    │
+                        │ (utils.py)            │
+                        │ - Format conversion   │
+                        │ - File generation     │
+                        └───────────┬───────────┘
+                                    │
+                                    └──────────────► Output: CSV/Excel/JSON
+                                                      + Rankings
+                                                      + Statistics
+```
+
+## 3. System Architecture Diagram
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        PRESENTATION LAYER                             │
+│                     (Streamlit Web Interface)                         │
+│  ┌────────────────────────────────────────────────────────────────┐   │
+│  │ - Upload Interface  │ - Results Display  │ - Analytics         │   │
+│  │ - Job Description   │ - Export Options  │ - Documentation     │   │
+│  └────────────────────────────────────────────────────────────────┘   │
+└────────────────────────────┬─────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼─────────────────────────────────────────┐
+│                       APPLICATION LAYER                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │
+│  │   Matcher    │  │ Shortlister  │  │  Exporter    │              │
+│  │              │  │              │  │              │              │
+│  │ - Cosine     │  │ - Threshold  │  │ - CSV Export │              │
+│  │   Similarity │  │   Filtering  │  │ - Excel Exp  │              │
+│  │ - Ranking    │  │ - Top-N Sel  │  │ - JSON Exp   │              │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+└────────────────────────────┬─────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼─────────────────────────────────────────┐
+│                        PROCESSING LAYER                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │
+│  │              │  │              │  │              │               │
+│  │  Preprocess  │  │Feature Extract│ │   Model      │               │
+│  │              │  │              │  │ Training     │               │
+│  │ - Tokenize   │  │ - TF-IDF Vec │ │ - If labeled │               │
+│  │ - Lemmatize  │  │ - Vectorize  │ │ - If unlabel │               │
+│  │ - Normalize  │  │              │  │   (Cluster)  │               │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+└────────────────────────────┬─────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼─────────────────────────────────────────┐
+│                          DATA LAYER                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │
+│  │              │  │              │  │              │               │
+│  │ DataLoader   │  │   Database   │  │   Cache      │               │
+│  │              │  │              │  │              │               │
+│  │ - Kaggle API │  │ - Resumes    │  │ - Features   │               │
+│  │ - File Load  │  │ - Results    │  │ - Models     │               │
+│  │ - Validation │  │ - Metadata   │  │              │               │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+└────────────────────────────────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼─────────────────────────────────────────┐
+│                      EXTERNAL SERVICES                               │
+│  - Kaggle API (Dataset Download)                                     │
+│  - NLTK Models (Stopwords, Lemmatizer)                              │
+│  - Scikit-learn (ML Models)                                          │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+## 4. Sequence Diagram - Resume Matching Flow
+
+```
+Application    Preprocessor    FeatureExt      Matcher         Database
+    │                │             │              │                │
+    │─ Load Resumes─►│             │              │                │
+    │                │             │              │                │
+    │◄─ Text Data ───│             │              │                │
+    │                │             │              │                │
+    │─ Preprocess ───────────────►│              │                │
+    │   Texts        │             │              │                │
+    │◄─ Clean Text ──────────────│              │                │
+    │                │             │              │                │
+    │─ Extract Features ──────────┼─────────────►│                │
+    │                │             │              │                │
+    │◄─ TF-IDF Matrix─────────────┼──────────────│                │
+    │                │             │              │                │
+    │─ Get Job Description──────────────────────►│                │
+    │                │             │              │                │
+    │─ Match Resumes ──────────────────────────►│                │
+    │                │             │              │                │
+    │◄─ Similarity Scores ─────────────────────│                │
+    │                │             │              │                │
+    │─ Rank Candidates ────────────────────────►│                │
+    │◄─ Ranked List ─────────────────────────│                │
+    │                │             │              │                │
+    │─ Shortlist ────────────────────────────►│                │
+    │                │             │              │                │
+    │◄─ Top Candidates ──────────────────────│                │
+    │                │             │              │                │
+    │─ Export Results ───────────────────────────────────────────►│
+    │                │             │              │                │
+    │◄─ File Path ───────────────────────────────────────────────│
+    │                │             │              │                │
+```
+
+## 5. Deployment Diagram
+
+```
+                        ┌──────────────────┐
+                        │   End Users      │
+                        │  (Recruiters)    │
+                        └────────┬─────────┘
+                                 │
+                    ┌────────────▼──────────────┐
+                    │   Web Browser             │
+                    │   (Chrome, Firefox, etc)  │
+                    └────────────┬──────────────┘
+                                 │ HTTPS
+                    ┌────────────▼──────────────┐
+                    │  Web Server              │
+                    │  (Streamlit)      │
+                    │  - Port 8501      │
+                    └────────────┬──────────────┘
+                                 │
+                ┌────────────────┼────────────────┐
+                │                │                │
+       ┌────────▼────────┐ ┌────▼────────┐ ┌────▼────────┐
+       │  Processing     │ │  Storage    │ │  Libraries  │
+       │  Engine         │ │  Layer      │ │             │
+       │               │ │           │ │             │
+       │ - Python 3.9 │ │ - CSV     │ │ - NLTK     │
+       │ - NumPy      │ │ - Excel   │ │ - sklearn  │
+       │ - Pandas     │ │ - JSON    │ │ - Pandas   │
+       │ - Scikit-l   │ │           │ │             │
+       │ - NLTK       │ │           │ │             │
+       └────────┬──────┘ └─────┬────┘ └─────┬─────┘
+                │              │            │
+                └──────────────┼────────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │  External Services │
+                    │                    │
+                    │ - Kaggle API       │
+                    │ - nltk.org models  │
+                    │ - PyPI packages    │
+                    └────────────────────┘
+```
+
+## 6. Class Diagram (Main Components)
+
+```
+┌───────────────────────────────┐
+│        DataLoader             │
+├───────────────────────────────┤
+│ - dataset_name: str           │
+│ - local_path: str             │
+│ - df: DataFrame               │
+├───────────────────────────────┤
+│ + download_dataset()          │
+│ + load_dataset()              │
+│ + handle_missing_values()     │
+│ + remove_duplicates()         │
+│ + get_text_columns()          │
+└───────────────────────────────┘
+           │
+           │ uses
+           ▼
+┌───────────────────────────────┐
+│    TextPreprocessor           │
+├───────────────────────────────┤
+│ - lemmatizer: Lemmatizer      │
+│ - stop_words: set             │
+├───────────────────────────────┤
+│ + preprocess_text()           │
+│ + remove_special_chars()      │
+│ + lemmatize_tokens()          │
+│ + to_lowercase()              │
+└───────────────────────────────┘
+           │
+           │ uses
+           ▼
+┌───────────────────────────────┐
+│   FeatureExtractor            │
+├───────────────────────────────┤
+│ - vectorizer: Vectorizer      │
+│ - tfidf_matrix: ndarray       │
+├───────────────────────────────┤
+│ + fit_transform()             │
+│ + extract_features()          │
+│ + get_feature_names()         │
+└───────────────────────────────┘
+           │
+           │ uses
+           ▼
+┌───────────────────────────────┐
+│   ResumeJobMatcher            │
+├───────────────────────────────┤
+│ - matches: List[Match]        │
+├───────────────────────────────┤
+│ + match_resumes_to_job()      │
+│ + calculate_cosine_sim()      │
+│ + get_matches_dataframe()     │
+└───────────────────────────────┘
+           │
+           │ uses
+           ▼
+┌───────────────────────────────┐
+│   CandidateShortlister        │
+├───────────────────────────────┤
+│ - threshold: float            │
+├───────────────────────────────┤
+│ + shortlist_candidates()      │
+│ + get_statistics()            │
+└───────────────────────────────┘
+           │
+           │ uses
+           ▼
+┌───────────────────────────────┐
+│     DataExporter              │
+├───────────────────────────────┤
+│ -output_dir: str              │
+├───────────────────────────────┤
+│ + export_to_csv()             │
+│ + export_to_excel()           │
+│ + export_to_json()            │
+└───────────────────────────────┘
+```
+
+## 7. Entity-Relationship Diagram
+
+```
+┌──────────────────────┐
+│  Resume Entity       │
+├──────────────────────┤
+│ resume_id (PK)       │
+│ candidate_name       │
+│ email                │
+│ phone                │
+│ raw_text             │
+│ processed_text       │
+│ upload_date          │
+└──────────┬───────────┘
+           │
+           │ 1:N
+           │
+           ▼
+┌──────────────────────┐
+│  Resume_Features     │
+├──────────────────────┤
+│ feature_id (PK)      │
+│ resume_id (FK)       │
+│ tfidf_vector         │
+│ feature_names        │
+│ extraction_method    │
+└──────────┬───────────┘
+           │
+           │ N:1
+           │
+           ▼
+┌──────────────────────┐
+│  Job_Description     │
+├──────────────────────┤
+│ job_id (PK)          │
+│ job_title            │
+│ company              │
+│ description_text     │
+│ job_vector           │
+│ created_date         │
+└──────────┬───────────┘
+           │
+           │ 1:N
+           │
+           ▼
+┌──────────────────────┐
+│  Matching_Results    │
+├──────────────────────┤
+│ result_id (PK)       │
+│ resume_id (FK)       │
+│ job_id (FK)          │
+│ similarity_score     │
+│ rank                 │
+│ match_quality        │
+│ matching_date        │
+└──────────────────────┘
+```
+
+## 8. Information Flow for Resume Processing
+
+```
+                    INPUT RESUMES
+                         │
+                         ▼
+                ┌─────────────────┐
+                │ Data Validation │
+                └────────┬────────┘
+                         │ ✓ Valid
+                         ▼
+                ┌─────────────────┐
+                │ Text Extraction │
+                │ (from PDF, etc) │
+                └────────┬────────┘
+                         │
+                         ▼
+        ┌────────────────────────────────┐
+        │   NLP PREPROCESSING PIPELINE    │
+        ├────────────────────────────────┤
+        │ 1. Lowercase                   │
+        │    "PYTHON DEVELOPER" → "python developer"
+        │                                │
+        │ 2. Remove special chars        │
+        │    "python-dev@123" → "pythondev"
+        │                                │
+        │ 3. Tokenization                │
+        │    "python developer" → [python, developer]
+        │                                │
+        │ 4. Stopword removal            │
+        │    [python, the, developer] → [python, developer]
+        │                                │
+        │ 5. Lemmatization               │
+        │    [developers, running] → [developer, run]
+        └────────┬───────────────────────┘
+                 │
+                 ▼
+        ┌────────────────────────────────┐
+        │   TF-IDF VECTORIZATION         │
+        ├────────────────────────────────┤
+        │ Term Weight  Importance        │
+        │ ──── ——  ⤓                    │
+        │ python    0.856  ⭐⭐⭐⭐⭐   
+        │ developer 0.742  ⭐⭐⭐⭐    
+        │ experience 0.634  ⭐⭐⭐     
+        │ machine   0.521  ⭐⭐       
+        │ learning  0.445  ⭐         
+        │ [... 4995 more features ...]  │
+        └────────┬───────────────────────┘
+                 │
+                 ▼
+        ┌────────────────────────────────┐
+        │  FEATURE VECTOR TO SIMILARITY  │
+        ├────────────────────────────────┤
+        │ Resume Vector → vs ← Job Vector│
+        │                                │
+        │ Cosine Similarity Score        │
+        │ Result: 0.87 (87% match)       │
+        └────────┬───────────────────────┘
+                 │
+                 ▼
+        ┌────────────────────────────────┐
+        │  RANKING & SHORTLISTING        │
+        ├────────────────────────────────┤
+        │ Candidate  | Score | Rank      │
+        │ John Doe   | 0.87  | 1  ✓      │
+        │ Jane Smith | 0.76  | 2  ✓      │
+        │ Bob Wilson | 0.65  | 3  ✓      │
+        │ Alice John | 0.54  | 4  ✗ (no) │
+        │ Chris Lee  | 0.43  | 5  ✗ (no) │
+        └────────┬───────────────────────┘
+                 │
+                 ▼
+        ┌────────────────────────────────┐
+        │  OUTPUT GENERATION             │
+        ├────────────────────────────────┤
+        │ CSV  → qualified_candidates.csv│
+        │ Excel → qualified_candidates.xlsx
+        │ JSON → results.json            │
+        │ UI   → Dashboard display       │
+        └────────────────────────────────┘
+```
+
+---
+
+## Quick Reference
+
+### Algorithm Complexity
+- **Data Loading**: O(n) - Linear scan
+- **Preprocessing**: O(n*m) - n resumes, m words per resume
+- **TF-IDF Extraction**: O(n*d) - n documents, d vocabulary size
+- **Cosine Similarity**: O(d) - d dimensions
+- **Overall**: O(n*m) for batch processing
+
+### Recommended Thresholds
+| Threshold | Interpretation |
+|-----------|-----------------|
+| < 0.2    | Poor match      |
+| 0.2-0.4  | Weak match      |
+| 0.4-0.6  | Moderate match  |
+| 0.6-0.8  | Good match      |
+| > 0.8    | Excellent match |
+
+### Scalability Limits
+| Component | Limit | Performance |
+|-----------|-------|-------------|
+| Resumes   | 10K+  | <5 min      |
+| Features  | 5000  | ~50MB       |
+| Users     | 10+   | Concurrent  |
+| Exports   | 1000+ | All formats |
+
+---
+
+**Document Version**: 1.0  
+**Last Updated**: 2024  
+**Maintained By**: AI/ML Team
