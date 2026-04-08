@@ -84,7 +84,7 @@ def main():
         st.markdown("---")
         
         # Logout button
-        logout_button()
+        logout_button(auth_manager)
         
         st.markdown("---")
         
