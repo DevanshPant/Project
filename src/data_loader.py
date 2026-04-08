@@ -6,7 +6,6 @@ import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import kagglehub
 import logging
 from typing import Tuple, Optional
 
@@ -44,6 +43,16 @@ class DataLoader:
         Returns:
             str: Path to downloaded dataset
         """
+        try:
+            import kagglehub
+        except ImportError:
+            message = (
+                "kagglehub is not installed. "
+                "Install it locally if you need Kaggle dataset download support."
+            )
+            logger.error(message)
+            raise ImportError(message)
+
         try:
             logger.info(f"Downloading dataset: {self.dataset_name}...")
             self.local_path = kagglehub.dataset_download(self.dataset_name)
